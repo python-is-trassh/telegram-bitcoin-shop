@@ -4,25 +4,45 @@
 
 echo "🚀 Настройка Telegram Bitcoin Shop Bot"
 
+# Проверка прав суперпользователя
+if [[ $EUID -ne 0 ]]; then
+   echo "❌ Этот скрипт должен запускаться с правами root (sudo)"
+   exit 1
+fi
+
 # Обновление системы
 echo "📦 Обновление системы..."
-sudo apt update && sudo apt upgrade -y
+apt update && apt upgrade -y
 
 # Установка необходимых пакетов
 echo "📦 Установка необходимых пакетов..."
-sudo apt install -y python3 python3-pip python3-venv postgresql postgresql-contrib nginx certbot python3-certbot-nginx
+apt install -y python3 python3-pip python3-venv postgresql postgresql-contrib git curl
 
 # Создание пользователя для бота
 echo "👤 Создание пользователя bot..."
-sudo useradd -m -s /bin/bash bot
+if ! id "bot" &>/dev/null; then
+    useradd -m -s /bin/bash bot
+    echo "✅ Пользователь bot создан"
+else
+    echo "ℹ️ Пользователь bot уже существует"
+fi
 
 # Создание директории для бота
 echo "📁 Создание директории для бота..."
-sudo mkdir -p /opt/telegram-bot
-sudo chown bot:bot /opt/telegram-bot
+mkdir -p /opt/telegram-bot
+chown bot:bot /opt/telegram-bot
 
 # Переход в директорию бота
 cd /opt/telegram-bot
+
+# Копирование файлов если они есть в текущей директории
+if [ -f "../main.py" ]; then
+    cp ../main.py .
+    cp ../requirements.txt .
+    cp ../.env.example .env
+    chown bot:bot main.py requirements.txt .env
+    echo "✅ Файлы скопированы"
+fi
 
 # Создание виртуального окружения
 echo "🐍 Создание виртуального окружения..."
@@ -35,36 +55,120 @@ sudo -u bot ./venv/bin/pip install -r requirements.txt
 
 # Настройка PostgreSQL
 echo "🗃️ Настройка PostgreSQL..."
-sudo -u postgres createuser --interactive --pwprompt botuser
-sudo -u postgres createdb -O botuser botdb
 
-# Копирование файлов
-echo "📄 Копирование файлов..."
-sudo cp main.py /opt/telegram-bot/
-sudo cp requirements.txt /opt/telegram-bot/
-sudo cp .env.example /opt/telegram-bot/.env
-sudo chown -R bot:bot /opt/telegram-bot
+# Запуск PostgreSQL
+systemctl start postgresql
+systemctl enable postgresql
 
-# Настройка systemd
+# Создание пользователя и базы данных
+sudo -u postgres psql -c "SELECT 1 FROM pg_roles WHERE rolname='botuser'" | grep -q 1
+if [ $? -ne 0 ]; then
+    echo "Создание пользователя PostgreSQL..."
+    echo "Введите пароль для пользователя botuser:"
+    sudo -u postgres createuser --interactive --pwprompt botuser
+else
+    echo "ℹ️ Пользователь botuser уже существует"
+fi
+
+sudo -u postgres psql -lqt | cut -d \| -f 1 | grep -qw botdb
+if [ $? -ne 0 ]; then
+    echo "Создание базы данных..."
+    sudo -u postgres createdb -O botuser botdb
+    echo "✅ База данных botdb создана"
+else
+    echo "ℹ️ База данных botdb уже существует"
+fi
+
+# Создание systemd сервиса
 echo "⚙️ Настройка systemd сервиса..."
-sudo cp telegram-bot.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable telegram-bot
+cat > /etc/systemd/system/telegram-bot.service << 'EOF'
+[Unit]
+Description=Telegram Bitcoin Shop Bot
+After=network.target postgresql.service
 
+[Service]
+Type=simple
+User=bot
+WorkingDirectory=/opt/telegram-bot
+ExecStart=/opt/telegram-bot/venv/bin/python main.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+# Загрузка переменных окружения
+EnvironmentFile=/opt/telegram-bot/.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable telegram-bot
+
+# Создание скрипта для управления ботом
+cat > /usr/local/bin/botctl << 'EOF'
+#!/bin/bash
+
+case "$1" in
+    start)
+        systemctl start telegram-bot
+        echo "🚀 Бот запущен"
+        ;;
+    stop)
+        systemctl stop telegram-bot
+        echo "⏹️ Бот остановлен"
+        ;;
+    restart)
+        systemctl restart telegram-bot
+        echo "🔄 Бот перезапущен"
+        ;;
+    status)
+        systemctl status telegram-bot
+        ;;
+    logs)
+        journalctl -u telegram-bot -f
+        ;;
+    edit)
+        nano /opt/telegram-bot/.env
+        ;;
+    *)
+        echo "Использование: botctl {start|stop|restart|status|logs|edit}"
+        echo ""
+        echo "start   - запустить бота"
+        echo "stop    - остановить бота"
+        echo "restart - перезапустить бота"
+        echo "status  - показать статус бота"
+        echo "logs    - показать логи бота"
+        echo "edit    - редактировать настройки"
+        ;;
+esac
+EOF
+
+chmod +x /usr/local/bin/botctl
+
+echo ""
 echo "✅ Настройка завершена!"
 echo ""
 echo "🔧 Дальнейшие шаги:"
-echo "1. Отредактируйте файл /opt/telegram-bot/.env"
-echo "2. Укажите BOT_TOKEN от @BotFather"
-echo "3. Укажите DATABASE_URL для PostgreSQL"
-echo "4. Укажите BITCOIN_ADDRESS для приема платежей"
-echo "5. Укажите ADMIN_IDS администраторов"
-echo "6. Запустите бота: sudo systemctl start telegram-bot"
-echo "7. Проверьте статус: sudo systemctl status telegram-bot"
+echo "1. Отредактируйте файл конфигурации:"
+echo "   botctl edit"
+echo ""
+echo "2. Укажите следующие параметры:"
+echo "   - BOT_TOKEN: токен от @BotFather"
+echo "   - DATABASE_URL: postgresql://botuser:ВАШ_ПАРОЛЬ@localhost:5432/botdb"
+echo "   - BITCOIN_ADDRESS: ваш Bitcoin адрес"
+echo "   - ADMIN_IDS: ID администраторов через запятую"
+echo ""
+echo "3. Запустите бота:"
+echo "   botctl start"
 echo ""
 echo "📊 Команды для управления:"
-echo "- Запуск: sudo systemctl start telegram-bot"
-echo "- Остановка: sudo systemctl stop telegram-bot"
-echo "- Перезапуск: sudo systemctl restart telegram-bot"
-echo "- Статус: sudo systemctl status telegram-bot"
-echo "- Логи: sudo journalctl -u telegram-bot -f"
+echo "- Запуск: botctl start"
+echo "- Остановка: botctl stop"
+echo "- Перезапуск: botctl restart"
+echo "- Статус: botctl status"
+echo "- Логи: botctl logs"
+echo "- Настройки: botctl edit"
+echo ""
+echo "📁 Файлы бота находятся в: /opt/telegram-bot"
+echo "📋 Конфигурация: /opt/telegram-bot/.env
