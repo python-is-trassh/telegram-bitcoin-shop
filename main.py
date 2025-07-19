@@ -18,6 +18,11 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.exceptions import TelegramBadRequest
 
+from dotenv import load_dotenv
+
+# Настройка окружения
+load_dotenv()
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
