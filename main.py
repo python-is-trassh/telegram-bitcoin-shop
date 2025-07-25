@@ -2,15 +2,15 @@ import asyncio
 import decimal
 import random
 from datetime import datetime
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.types import InlineKeyboardButton
+from aiogram.types import InlineKeyboardButton, CallbackQuery, Message
+from aiogram.filters import StateFilter
+from aiogram.fsm.context import FSMContext
 
 from config import BOT_TOKEN, DB_URL, BITCOIN_ADDRESS, ADMIN_IDS, TEST_MODE, validate_config, logger
 from database import DatabaseManager
-from handlers import Handlers, router as main_router
-from admin_handlers import AdminHandlers, router as admin_router
 from bitcoin_utils import check_bitcoin_payment, get_btc_rate
 from states import UserStates
 
@@ -19,17 +19,15 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 db = DatabaseManager(DB_URL)
 
-# Инициализация обработчиков
-handlers = Handlers(db, bot)
-admin_handlers = AdminHandlers(db, bot)
-
-# Импортируем дополнительные роутеры
-from review_handlers import router as review_router
-from edit_handlers import router as edit_router
+# Импортируем роутеры
+from handlers import router as main_router
+from admin_handlers import router as admin_router, setup_admin_handlers
+from review_handlers import router as review_router, setup_review_handlers
+from edit_handlers import router as edit_router, setup_edit_handlers
 
 # Недостающие обработчики для основного функционала
-@main_router.callback_query(lambda c: c.data.startswith("buy_product_"))
-async def buy_product_handler(callback, state):
+@main_router.callback_query(F.data.startswith("buy_product_"))
+async def buy_product_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик покупки товара"""
     try:
         product_id = int(callback.data.split("_")[2])
@@ -52,8 +50,8 @@ async def buy_product_handler(callback, state):
         logger.error(f"Ошибка в buy_product_handler: {e}")
         await callback.answer("❌ Ошибка")
 
-@main_router.callback_query(lambda c: c.data.startswith("location_"))
-async def location_handler(callback, state):
+@main_router.callback_query(F.data.startswith("location_"))
+async def location_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик выбора локации"""
     try:
         location_id = int(callback.data.split("_")[1])
@@ -167,8 +165,8 @@ async def location_handler(callback, state):
         logger.error(f"Ошибка в location_handler: {e}")
         await callback.answer("❌ Ошибка создания заказа")
 
-@main_router.callback_query(lambda c: c.data.startswith("check_payment_"))
-async def check_payment_handler(callback, state):
+@main_router.callback_query(F.data.startswith("check_payment_"))
+async def check_payment_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик проверки оплаты"""
     try:
         order_id = int(callback.data.split("_")[2])
@@ -241,8 +239,8 @@ async def check_payment_handler(callback, state):
         await callback.answer("❌ Ошибка проверки оплаты")
 
 # История покупок и отзывы
-@main_router.callback_query(lambda c: c.data == "user_history")
-async def user_history_handler(callback, state):
+@main_router.callback_query(F.data == "user_history")
+async def user_history_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик истории покупок"""
     try:
         orders = await db.get_user_history(callback.from_user.id)
@@ -284,6 +282,88 @@ async def user_history_handler(callback, state):
     except Exception as e:
         logger.error(f"Ошибка в user_history_handler: {e}")
         await callback.answer("❌ Ошибка загрузки истории")
+
+# Обработчик ручного подтверждения платежа админом
+@main_router.callback_query(F.data.startswith("admin_confirm_payment_"))
+async def admin_confirm_payment_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик ручного подтверждения платежа админом"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав")
+        return
+    
+    try:
+        order_id = int(callback.data.split("_")[3])
+        order = await db.get_order(order_id)
+        
+        if not order:
+            await callback.answer("❌ Заказ не найден")
+            return
+        
+        if order['status'] != 'pending':
+            await callback.answer("❌ Заказ уже обработан")
+            return
+        
+        # Получаем доступную ссылку
+        content_link = await db.get_available_link(order['location_id'])
+        
+        if content_link:
+            await db.complete_order(order_id, content_link, "manual_confirmation")
+            
+            # Уведомляем пользователя
+            try:
+                user_text = f"✅ *Оплата подтверждена!*\n\n"
+                user_text += f"📦 Заказ #{order_id} выполнен\n\n"
+                user_text += f"🔗 Ваш контент:\n{content_link}\n\n"
+                user_text += f"Спасибо за покупку! 🎉\n\n"
+                user_text += f"💬 Оставьте отзыв о товаре в разделе \"📋 Мои покупки\""
+                
+                await bot.send_message(order['user_id'], user_text, parse_mode='Markdown')
+            except Exception as e:
+                logger.error(f"Ошибка уведомления пользователя {order['user_id']}: {e}")
+            
+            await callback.answer("✅ Заказ выполнен")
+            await callback.message.edit_text(f"✅ Заказ #{order_id} выполнен вручную")
+            
+            logger.info(f"Админ {callback.from_user.id} вручную выполнил заказ #{order_id}")
+        else:
+            await callback.answer("❌ Нет доступных ссылок")
+            
+    except Exception as e:
+        logger.error(f"Ошибка в admin_confirm_payment_handler: {e}")
+        await callback.answer("❌ Ошибка")
+
+# Отмена заказа
+@main_router.callback_query(F.data.startswith("cancel_order_"))
+async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик отмены заказа"""
+    try:
+        order_id = int(callback.data.split("_")[2])
+        order = await db.get_order(order_id)
+        
+        if not order or order['user_id'] != callback.from_user.id:
+            await callback.answer("❌ Заказ не найден")
+            return
+        
+        if order['status'] != 'pending':
+            await callback.answer("❌ Заказ нельзя отменить")
+            return
+        
+        # Отменяем заказ
+        async with db.pool.acquire() as conn:
+            await conn.execute("UPDATE orders SET status = 'cancelled' WHERE id = $1", order_id)
+        
+        text = f"❌ *Заказ #{order_id} отменен*\n\n"
+        text += f"Вы можете оформить новый заказ в любое время"
+        
+        from keyboards import create_main_menu
+        await callback.message.edit_text(text, reply_markup=create_main_menu(), parse_mode='Markdown')
+        await callback.answer("✅ Заказ отменен")
+        await state.set_state(UserStates.MAIN_MENU)
+        
+        logger.info(f"Пользователь {callback.from_user.id} отменил заказ #{order_id}")
+    except Exception as e:
+        logger.error(f"Ошибка в cancel_order_handler: {e}")
+        await callback.answer("❌ Ошибка отмены заказа")
 
 # Автоматическая отмена просроченных заказов
 async def cancel_expired_orders():
@@ -330,6 +410,11 @@ async def main():
         # Инициализируем базу данных
         logger.info("Инициализация базы данных...")
         await db.init_pool()
+        
+        # Инициализируем обработчики с доступом к db и bot
+        setup_admin_handlers(db, bot)
+        setup_review_handlers(db, bot)
+        setup_edit_handlers(db, bot)
         
         # Регистрируем роутеры
         dp.include_router(main_router)
