@@ -12,8 +12,8 @@ from aiogram.types import InlineKeyboardButton
 from states import UserStates, AdminStates
 from keyboards import (
     create_main_menu, create_categories_menu, create_products_menu,
-    create_product_detail_menu, create_locations_menu, create_review_menu,
-    create_admin_menu, create_back_to_main_menu
+    create_product_detail_menu, create_locations_menu, 
+    create_back_to_main_menu
 )
 from bitcoin_utils import get_btc_rate, check_bitcoin_payment
 from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
@@ -29,6 +29,25 @@ def setup_handlers(db, bot: Bot):
     global _db, _bot
     _db = db
     _bot = bot
+
+# Функции клавиатуры для админ панели (локальные)
+def create_admin_menu():
+    """Создание админ меню"""
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="➕ Добавить категорию", callback_data="admin_add_category"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить локацию", callback_data="admin_add_location"))
+    builder.add(InlineKeyboardButton(text="🎟️ Добавить промокод", callback_data="admin_add_promo"))
+    builder.add(InlineKeyboardButton(text="📝 Управление категориями", callback_data="admin_manage_categories"))
+    builder.add(InlineKeyboardButton(text="📦 Управление товарами", callback_data="admin_manage_products"))
+    builder.add(InlineKeyboardButton(text="📍 Управление локациями", callback_data="admin_manage_locations"))
+    builder.add(InlineKeyboardButton(text="🎟️ Управление промокодами", callback_data="admin_manage_promos"))
+    builder.add(InlineKeyboardButton(text="⭐ Просмотр отзывов", callback_data="admin_view_reviews"))
+    builder.add(InlineKeyboardButton(text="✏️ Редактировать «О магазине»", callback_data="admin_edit_about"))
+    builder.add(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
+    builder.add(InlineKeyboardButton(text="🔙 В главное меню", callback_data="main_menu"))
+    builder.adjust(2, 2, 2, 2, 2, 1, 1, 1)
+    return builder.as_markup()
 
 # Основные команды
 @router.message(Command("start"))
