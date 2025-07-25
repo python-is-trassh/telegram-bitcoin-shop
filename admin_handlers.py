@@ -8,10 +8,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 
 from states import AdminStates
-from keyboards import (
-    create_admin_menu, create_manage_categories_menu, create_manage_products_menu,
-    create_manage_locations_menu, create_manage_promos_menu, create_back_to_admin_menu
-)
 from config import ADMIN_IDS, logger
 
 router = Router()
@@ -25,6 +21,101 @@ def setup_admin_handlers(db, bot):
     global _db, _bot
     _db = db
     _bot = bot
+
+# Функции клавиатуры (перенесены сюда чтобы избежать циклических импортов)
+def create_admin_menu():
+    """Создание админ меню"""
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="➕ Добавить категорию", callback_data="admin_add_category"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить локацию", callback_data="admin_add_location"))
+    builder.add(InlineKeyboardButton(text="🎟️ Добавить промокод", callback_data="admin_add_promo"))
+    builder.add(InlineKeyboardButton(text="📝 Управление категориями", callback_data="admin_manage_categories"))
+    builder.add(InlineKeyboardButton(text="📦 Управление товарами", callback_data="admin_manage_products"))
+    builder.add(InlineKeyboardButton(text="📍 Управление локациями", callback_data="admin_manage_locations"))
+    builder.add(InlineKeyboardButton(text="🎟️ Управление промокодами", callback_data="admin_manage_promos"))
+    builder.add(InlineKeyboardButton(text="⭐ Просмотр отзывов", callback_data="admin_view_reviews"))
+    builder.add(InlineKeyboardButton(text="✏️ Редактировать «О магазине»", callback_data="admin_edit_about"))
+    builder.add(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
+    builder.add(InlineKeyboardButton(text="🔙 В главное меню", callback_data="main_menu"))
+    builder.adjust(2, 2, 2, 2, 2, 1, 1, 1)
+    return builder.as_markup()
+
+def create_manage_categories_menu(categories):
+    """Создание меню управления категориями"""
+    builder = InlineKeyboardBuilder()
+    for category in categories:
+        status_icon = "⚠️" if not category['is_active'] else ""
+        builder.add(InlineKeyboardButton(
+            text=f"📝 {category['name']} {status_icon}",
+            callback_data=f"admin_edit_category_{category['id']}"
+        ))
+        builder.add(InlineKeyboardButton(
+            text="🗑",
+            callback_data=f"admin_delete_category_{category['id']}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔙 Админ меню", callback_data="admin_menu"))
+    builder.adjust(2)
+    return builder.as_markup()
+
+def create_manage_products_menu(products):
+    """Создание меню управления товарами"""
+    builder = InlineKeyboardBuilder()
+    for product in products:
+        status_icon = "⚠️" if not product['is_active'] else ""
+        builder.add(InlineKeyboardButton(
+            text=f"📝 {product['category_name']} - {product['name']} {status_icon}",
+            callback_data=f"admin_edit_product_{product['id']}"
+        ))
+        builder.add(InlineKeyboardButton(
+            text="🗑",
+            callback_data=f"admin_delete_product_{product['id']}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔙 Админ меню", callback_data="admin_menu"))
+    builder.adjust(2)
+    return builder.as_markup()
+
+def create_manage_locations_menu(locations):
+    """Создание меню управления локациями"""
+    builder = InlineKeyboardBuilder()
+    for location in locations:
+        status_icon = "⚠️" if not location['is_active'] else ""
+        available_count = location.get('available_links_count', 0)
+        builder.add(InlineKeyboardButton(
+            text=f"📝 {location['product_name']} - {location['name']} ({available_count}) {status_icon}",
+            callback_data=f"admin_edit_location_{location['id']}"
+        ))
+        builder.add(InlineKeyboardButton(
+            text="🗑",
+            callback_data=f"admin_delete_location_{location['id']}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔙 Админ меню", callback_data="admin_menu"))
+    builder.adjust(2)
+    return builder.as_markup()
+
+def create_manage_promos_menu(promos):
+    """Создание меню управления промокодами"""
+    builder = InlineKeyboardBuilder()
+    for promo in promos:
+        status_icon = "⚠️" if not promo['is_active'] else ""
+        usage_text = f"({promo['current_uses']}/{promo['max_uses']})" if promo['max_uses'] > 0 else ""
+        builder.add(InlineKeyboardButton(
+            text=f"📝 {promo['code']} {usage_text} {status_icon}",
+            callback_data=f"admin_edit_promo_{promo['id']}"
+        ))
+        builder.add(InlineKeyboardButton(
+            text="🗑",
+            callback_data=f"admin_delete_promo_{promo['id']}"
+        ))
+    builder.add(InlineKeyboardButton(text="🔙 Админ меню", callback_data="admin_menu"))
+    builder.adjust(2)
+    return builder.as_markup()
+
+def create_back_to_admin_menu():
+    """Создание кнопки возврата в админ меню"""
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="🔙 Админ меню", callback_data="admin_menu"))
+    return builder.as_markup()
 
 # Промокоды - добавление
 @router.callback_query(F.data == "admin_add_promo")
