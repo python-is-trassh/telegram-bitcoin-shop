@@ -705,29 +705,46 @@ class DatabaseManager:
             ''', key, value)
     
     # Статистика
-    async def get_stats(self) -> Dict:
-        """Получение статистики"""
-        async with self.pool.acquire() as conn:
-            stats = {}
-            
-            # Общая статистика
-            stats['total_orders'] = await conn.fetchval("SELECT COUNT(*) FROM orders") or 0
-            stats['completed_orders'] = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'completed'") or 0
-            stats['pending_orders'] = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'pending'") or 0
-            stats['total_revenue'] = await conn.fetchval("SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE status = 'completed'") or 0
-            stats['total_reviews'] = await conn.fetchval("SELECT COUNT(*) FROM reviews") or 0
-            
-            avg_rating = await conn.fetchval("SELECT AVG(rating) FROM reviews")
-            stats['avg_rating'] = float(avg_rating) if avg_rating else 0
-            
-            # Статистика за сегодня
-            today = datetime.now().date()
-            stats['today_orders'] = await conn.fetchval(
-                "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = $1", today
-            ) or 0
-            stats['today_revenue'] = await conn.fetchval(
-                "SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE DATE(created_at) = $1 AND status = 'completed'", 
-                today
-            ) or 0
-            
-            return stats
+# Заменить метод get_stats в database.py на этот исправленный вариант:
+
+async def get_stats(self) -> Dict:
+    """Получение статистики"""
+    async with self.pool.acquire() as conn:
+        stats = {}
+        
+        # Общая статистика с проверкой на None
+        total_orders = await conn.fetchval("SELECT COUNT(*) FROM orders")
+        stats['total_orders'] = total_orders if total_orders is not None else 0
+        
+        completed_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'completed'")
+        stats['completed_orders'] = completed_orders if completed_orders is not None else 0
+        
+        pending_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+        stats['pending_orders'] = pending_orders if pending_orders is not None else 0
+        
+        total_revenue = await conn.fetchval("SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE status = 'completed'")
+        stats['total_revenue'] = float(total_revenue) if total_revenue is not None else 0.0
+        
+        total_reviews = await conn.fetchval("SELECT COUNT(*) FROM reviews")
+        stats['total_reviews'] = total_reviews if total_reviews is not None else 0
+        
+        avg_rating = await conn.fetchval("SELECT AVG(rating) FROM reviews")
+        stats['avg_rating'] = float(avg_rating) if avg_rating is not None else 0.0
+        
+        # Статистика за сегодня
+        today = datetime.now().date()
+        today_orders = await conn.fetchval(
+            "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = $1", today
+        )
+        stats['today_orders'] = today_orders if today_orders is not None else 0
+        
+        today_revenue = await conn.fetchval(
+            "SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE DATE(created_at) = $1 AND status = 'completed'", 
+            today
+        )
+        stats['today_revenue'] = float(today_revenue) if today_revenue is not None else 0.0
+        
+        return stats
+
+
+
