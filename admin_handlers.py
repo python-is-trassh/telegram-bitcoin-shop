@@ -662,3 +662,109 @@ async def admin_manage_categories_handler(callback: CallbackQuery, state: FSMCon
     except Exception as e:
         logger.error(f"Ошибка в admin_manage_categories_handler: {e}")
         await callback.answer("❌ Ошибка загрузки категорий")
+
+
+# Добавить в admin_handlers.py после существующих обработчиков промокодов:
+
+@router.callback_query(F.data.startswith("admin_edit_promo_"))
+async def admin_edit_promo_handler(callback: CallbackQuery, state: FSMContext):
+    """Обработчик редактирования промокода"""
+    if callback.from_user.id not in ADMIN_IDS:
+        await callback.answer("❌ Нет прав")
+        return
+    
+    try:
+        promo_id = int(callback.data.split("_")[3])
+        
+        # Получаем информацию о промокоде
+        async with _db.pool.acquire() as conn:
+            promo = await conn.fetchrow("SELECT * FROM promo_codes WHERE id = $1", promo_id)
+        
+        if not promo:
+            await callback.answer("❌ Промокод не найден")
+            return
+        
+        await state.set_state(AdminStates.EDITING_PROMO)
+        await state.update_data(promo_id=promo_id)
+        
+        expires_text = promo['expires_at'].strftime("%d.%m.%Y") if promo['expires_at'] else "Без ограничений"
+        status_text = " (НЕАКТИВЕН)" if not promo['is_active'] else ""
+        
+        text = f"🎟️ Редактирование промокода{status_text}\n\n"
+        text += f"Код: {promo['code']}\n"
+        text += f"Тип скидки: {promo['discount_type']}\n"
+        text += f"Размер скидки: {promo['discount_value']}\n"
+        text += f"Мин. сумма заказа: {promo['min_order_amount']}\n"
+        text += f"Макс. использований: {promo['max_uses'] if promo['max_uses'] > 0 else 'Без ограничений'}\n"
+        text += f"Использовано: {promo['current_uses']}\n"
+        text += f"Срок действия: {expires_text}\n\n"
+        text += f"Введите новые данные в формате:\n"
+        text += f"КОД\n"
+        text += f"Тип скидки (percent/fixed)\n"
+        text += f"Размер скидки\n"
+        text += f"Минимальная сумма заказа\n"
+        text += f"Максимальное количество использований (0 = без ограничений)\n"
+        text += f"Срок действия в днях (0 = без ограничений)"
+        
+        await callback.message.edit_text(text)
+        await callback.answer()
+    except Exception as e:
+        logger.error(f"Ошибка в admin_edit_promo_handler: {e}")
+        await callback.answer("❌ Ошибка загрузки промокода")
+
+@router.message(StateFilter(AdminStates.EDITING_PROMO))
+async def process_edit_promo(message: Message, state: FSMContext):
+    """Обработка редактирования промокода"""
+    data = await state.get_data()
+    promo_id = data.get('promo_id')
+    
+    lines = message.text.strip().split('\n')
+    if len(lines) < 6:
+        await message.answer("❌ Неверный формат. Укажите все параметры")
+        return
+    
+    try:
+        code = lines[0].strip().upper()
+        discount_type = lines[1].strip().lower()
+        discount_value = decimal.Decimal(lines[2].strip())
+        min_order_amount = decimal.Decimal(lines[3].strip())
+        max_uses = int(lines[4].strip())
+        days_valid = int(lines[5].strip())
+        
+        if discount_type not in ['percent', 'fixed']:
+            await message.answer("❌ Тип скидки должен быть 'percent' или 'fixed'")
+            return
+        
+        if discount_type == 'percent' and (discount_value <= 0 or discount_value > 100):
+            await message.answer("❌ Процентная скидка должна быть от 1 до 100")
+            return
+        
+        if discount_type == 'fixed' and discount_value <= 0:
+            await message.answer("❌ Фиксированная скидка должна быть больше 0")
+            return
+        
+        expires_at = None
+        if days_valid > 0:
+            expires_at = datetime.now() + timedelta(days=days_valid)
+        
+        # Обновляем промокод
+        async with _db.pool.acquire() as conn:
+            await conn.execute('''
+                UPDATE promo_codes 
+                SET code = $2, discount_type = $3, discount_value = $4, 
+                    min_order_amount = $5, max_uses = $6, expires_at = $7
+                WHERE id = $1
+            ''', promo_id, code, discount_type, discount_value, min_order_amount, max_uses, expires_at)
+        
+        await message.answer(f"✅ Промокод '{code}' обновлен", reply_markup=create_admin_menu())
+        await state.set_state(AdminStates.ADMIN_MENU)
+        logger.info(f"Админ {message.from_user.id} обновил промокод {promo_id}")
+    except (ValueError, decimal.InvalidOperation):
+        await message.answer("❌ Неверный формат чисел")
+    except Exception as e:
+        logger.error(f"Ошибка обновления промокода: {e}")
+        await message.answer(f"❌ Ошибка: {e}")
+
+# Также нужно добавить состояние EDITING_PROMO в states.py:
+# EDITING_PROMO = State()
+
