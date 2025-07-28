@@ -1,7 +1,6 @@
 from typing import List, Dict
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import ADMIN_IDS
 
 def create_main_menu() -> InlineKeyboardMarkup:
     """Создание главного меню"""
@@ -11,8 +10,7 @@ def create_main_menu() -> InlineKeyboardMarkup:
     builder.add(InlineKeyboardButton(text="🎟️ Промокод", callback_data="enter_promo"))
     builder.add(InlineKeyboardButton(text="ℹ️ О магазине", callback_data="about"))
     builder.add(InlineKeyboardButton(text="₿ Курс Bitcoin", callback_data="btc_rate"))
-    if ADMIN_IDS:
-        builder.add(InlineKeyboardButton(text="📊 Статистика", callback_data="stats"))
+    builder.add(InlineKeyboardButton(text="📊 Статистика", callback_data="stats"))
     builder.adjust(2, 2, 1, 1)
     return builder.as_markup()
 
@@ -54,7 +52,13 @@ def create_product_detail_menu(product_id: int, has_locations: bool, has_reviews
         builder.add(InlineKeyboardButton(text="⭐ Отзывы", callback_data=f"product_reviews_{product_id}"))
     
     builder.add(InlineKeyboardButton(text="🔙 Назад", callback_data="categories"))
-    builder.adjust(2 if has_locations and has_reviews else 1)
+    
+    # Настраиваем расположение кнопок
+    if has_locations and has_reviews:
+        builder.adjust(2, 1)  # Две кнопки в первом ряду, одна во втором
+    else:
+        builder.adjust(1)  # По одной кнопке в ряду
+    
     return builder.as_markup()
 
 def create_locations_menu(locations: List[Dict], product_id: int) -> InlineKeyboardMarkup:
