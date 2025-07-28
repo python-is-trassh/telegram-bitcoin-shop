@@ -224,18 +224,26 @@ async def product_handler(callback: CallbackQuery, state: FSMContext):
         text += f"📝 {product['description']}\n\n"
         text += f"💰 Цена: {product['price_rub']} ₽ (~{price_btc:.8f} BTC)\n\n"
         
-        # Добавляем рейтинг
-        if product['review_count'] > 0:
-            stars = "⭐" * int(product['rating'])
-            text += f"⭐ Рейтинг: {stars} {product['rating']:.1f}/5 ({product['review_count']} отзывов)\n\n"
+        # Безопасное получение рейтинга и количества отзывов
+        rating = product.get('rating', 0)
+        review_count = product.get('review_count', 0)
+        
+        # Добавляем рейтинг только если есть отзывы
+        if review_count and review_count > 0 and rating and rating > 0:
+            stars = "⭐" * int(rating)
+            text += f"⭐ Рейтинг: {stars} {rating:.1f}/5 ({review_count} отзывов)\n\n"
         
         # Показываем последние отзывы
         if reviews:
             text += "💬 *Последние отзывы:*\n"
             for review in reviews:
                 stars = "⭐" * review['rating']
-                comment = review['comment'][:100] + "..." if len(review['comment']) > 100 else review['comment']
-                text += f"{stars} {comment}\n"
+                comment = review.get('comment', '')
+                if comment:
+                    comment = comment[:100] + "..." if len(comment) > 100 else comment
+                    text += f"{stars} {comment}\n"
+                else:
+                    text += f"{stars}\n"
             text += "\n"
         
         if locations:
@@ -522,20 +530,37 @@ async def user_history_handler(callback: CallbackQuery, state: FSMContext):
             builder = InlineKeyboardBuilder()
             
             for order in orders:
-                date = order['completed_at'].strftime("%d.%m.%Y %H:%M")
-                price = order['price_rub'] - order['discount_amount']
+                # Безопасное получение даты
+                completed_at = order.get('completed_at')
+                if completed_at:
+                    date = completed_at.strftime("%d.%m.%Y %H:%M")
+                else:
+                    date = "Дата неизвестна"
                 
-                order_text = f"📦 {order['product_name']}\n"
-                order_text += f"📍 {order['location_name']}\n"
+                # Безопасное вычисление цены
+                price_rub = order.get('price_rub', 0) or 0
+                discount_amount = order.get('discount_amount', 0) or 0
+                price = price_rub - discount_amount
+                
+                # Безопасное получение названий
+                product_name = order.get('product_name', 'Неизвестный товар')
+                location_name = order.get('location_name', 'Неизвестная локация')
+                
+                order_text = f"📦 {product_name}\n"
+                order_text += f"📍 {location_name}\n"
                 order_text += f"💰 {price} ₽ • {date}\n"
                 
-                if order['user_rating']:
-                    stars = "⭐" * order['user_rating']
+                # Безопасная проверка рейтинга
+                user_rating = order.get('user_rating')
+                if user_rating and user_rating > 0:
+                    stars = "⭐" * int(user_rating)
                     order_text += f"⭐ Ваша оценка: {stars}"
                 else:
                     order_text += "💬 Можете оставить отзыв"
+                    # Ограничиваем длину названия товара для кнопки
+                    short_product_name = product_name[:20] + "..." if len(product_name) > 20 else product_name
                     builder.add(InlineKeyboardButton(
-                        text=f"⭐ Оценить \"{order['product_name'][:20]}...\"",
+                        text=f"⭐ Оценить \"{short_product_name}\"",
                         callback_data=f"review_order_{order['id']}"
                     ))
                 
