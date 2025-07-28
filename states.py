@@ -28,3 +28,4 @@ class AdminStates(StatesGroup):
     ADDING_PROMO = State()
     MANAGE_PROMOS = State()
     VIEWING_REVIEWS = State()
+    EDITING_PROMO = State()
