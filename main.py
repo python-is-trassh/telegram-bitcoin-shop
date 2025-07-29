@@ -70,10 +70,10 @@ async def main():
         setup_edit_handlers(db, bot)
         
         # Регистрируем роутеры
-        dp.include_router(main_router)
-        dp.include_router(admin_router)
-        dp.include_router(review_router)
-        dp.include_router(edit_router)
+        dp.include_router(admin_router)  # ПЕРВЫЙ
+dp.include_router(edit_router)
+dp.include_router(review_router)
+dp.include_router(main_router)
         
         # Запускаем задачу отмены просроченных заказов
         cancel_task = asyncio.create_task(cancel_expired_orders())
