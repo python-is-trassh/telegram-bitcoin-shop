@@ -184,41 +184,64 @@ class DatabaseManager:
             row = await conn.fetchrow("SELECT * FROM categories WHERE id = $1", category_id)
             return dict(row) if row else None
     
-    async def get_products(self, category_id: int, active_only: bool = True) -> List[Dict]:
-        """Получение товаров категории с проверкой наличия ссылок"""
-        async with self.pool.acquire() as conn:
-            query = '''
-                SELECT p.*, 
-                       COALESCE(available_links.count, 0) as available_links_count
-                FROM products p
+async def get_products(self, category_id: int, active_only: bool = True) -> List[Dict]:
+    """Получение товаров категории с проверкой наличия ссылок"""
+    async with self.pool.acquire() as conn:
+        query = '''
+            SELECT p.*, 
+                   COALESCE(p.rating, 0) as rating,
+                   COALESCE(p.review_count, 0) as review_count,
+                   COALESCE(available_links.count, 0) as available_links_count
+            FROM products p
+            LEFT JOIN (
+                SELECT l.product_id, 
+                       SUM(GREATEST(array_length(l.content_links, 1) - COALESCE(used_count.count, 0), 0)) as count
+                FROM locations l
                 LEFT JOIN (
-                    SELECT l.product_id, 
-                           SUM(GREATEST(array_length(l.content_links, 1) - COALESCE(used_count.count, 0), 0)) as count
-                    FROM locations l
-                    LEFT JOIN (
-                        SELECT location_id, COUNT(*) as count
-                        FROM used_links
-                        GROUP BY location_id
-                    ) used_count ON l.id = used_count.location_id
-                    WHERE l.is_active = TRUE
-                    GROUP BY l.product_id
-                ) available_links ON p.id = available_links.product_id
-                WHERE p.category_id = $1
-            '''
-            
-            if active_only:
-                query += " AND p.is_active = TRUE AND COALESCE(available_links.count, 0) > 0"
-            
-            query += " ORDER BY p.name"
-            
-            rows = await conn.fetch(query, category_id)
-            return [dict(row) for row in rows]
-    
-    async def get_product(self, product_id: int) -> Optional[Dict]:
-        """Получение товара по ID"""
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
-            return dict(row) if row else None
+                    SELECT location_id, COUNT(*) as count
+                    FROM used_links
+                    GROUP BY location_id
+                ) used_count ON l.id = used_count.location_id
+                WHERE l.is_active = TRUE
+                GROUP BY l.product_id
+            ) available_links ON p.id = available_links.product_id
+            WHERE p.category_id = $1
+        '''
+        
+        if active_only:
+            query += " AND p.is_active = TRUE AND COALESCE(available_links.count, 0) > 0"
+        
+        query += " ORDER BY p.name"
+        
+        rows = await conn.fetch(query, category_id)
+        
+        # Преобразуем результат в словари с безопасными значениями
+        products = []
+        for row in rows:
+            product = dict(row)
+            # Убеждаемся, что числовые поля не равны None
+            product['rating'] = product.get('rating') or 0
+            product['review_count'] = product.get('review_count') or 0
+            product['available_links_count'] = product.get('available_links_count') or 0
+            products.append(product)
+        
+        return products
+
+async def get_product(self, product_id: int) -> Optional[Dict]:
+    """Получение товара по ID"""
+    async with self.pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT *, COALESCE(rating, 0) as rating, COALESCE(review_count, 0) as review_count FROM products WHERE id = $1", 
+            product_id
+        )
+        if not row:
+            return None
+        
+        product = dict(row)
+        # Убеждаемся, что числовые поля не равны None
+        product['rating'] = product.get('rating') or 0
+        product['review_count'] = product.get('review_count') or 0
+        return product
     
     async def get_locations(self, product_id: int, active_only: bool = True) -> List[Dict]:
         """Получение локаций товара с проверкой наличия ссылок"""
