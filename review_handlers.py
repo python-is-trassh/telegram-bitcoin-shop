@@ -40,21 +40,46 @@ async def product_reviews_handler(callback: CallbackQuery, state: FSMContext):
         product = await _db.get_product(product_id)
         reviews = await _db.get_product_reviews(product_id, limit=10)
         
+        if not product:
+            await callback.answer("❌ Товар не найден")
+            return
+        
+        # Безопасное получение названия товара
+        product_name = product.get('name', 'Неизвестный товар')
+        
         if not reviews:
-            text = f"📦 *{product['name']}*\n\nℹ️ Пока нет отзывов о этом товаре"
+            text = f"📦 *{product_name}*\n\nℹ️ Пока нет отзывов о этом товаре"
         else:
-            text = f"📦 *{product['name']}*\n\n"
-            text += f"⭐ Рейтинг: {'⭐' * int(product['rating'])} {product['rating']:.1f}/5\n"
-            text += f"💬 Всего отзывов: {product['review_count']}\n\n"
+            # Безопасное получение рейтинга и количества отзывов
+            rating = product.get('rating', 0) or 0
+            review_count = product.get('review_count', 0) or 0
+            
+            text = f"📦 *{product_name}*\n\n"
+            
+            if review_count > 0 and rating > 0:
+                stars = "⭐" * int(rating)
+                text += f"⭐ Рейтинг: {stars} {rating:.1f}/5\n"
+                text += f"💬 Всего отзывов: {review_count}\n\n"
+            
             text += "*Отзывы покупателей:*\n\n"
             
             for i, review in enumerate(reviews, 1):
                 stars = "⭐" * review['rating']
                 user_id_masked = f"***{str(review['user_id'])[-3:]}"
-                date = review['created_at'].strftime("%d.%m.%Y")
+                
+                # Безопасная обработка даты
+                created_at = review.get('created_at')
+                if created_at:
+                    date = created_at.strftime("%d.%m.%Y")
+                else:
+                    date = "Дата неизвестна"
+                
                 text += f"{i}. {stars} от {user_id_masked} ({date})\n"
-                if review['comment']:
-                    text += f"   {review['comment']}\n"
+                
+                # Безопасная обработка комментария
+                comment = review.get('comment')
+                if comment and comment.strip():
+                    text += f"   {comment}\n"
                 text += "\n"
         
         builder = InlineKeyboardBuilder()
@@ -65,7 +90,7 @@ async def product_reviews_handler(callback: CallbackQuery, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка в product_reviews_handler: {e}")
         await callback.answer("❌ Ошибка загрузки отзывов")
-
+        
 @router.callback_query(F.data.startswith("review_order_"))
 async def review_order_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик начала отзыва"""
@@ -112,6 +137,8 @@ async def rate_handler(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Ошибка в rate_handler: {e}")
         await callback.answer("❌ Ошибка")
 
+# Заменить функцию process_review_comment в review_handlers.py на эту исправленную версию:
+
 @router.message(StateFilter(UserStates.WRITING_REVIEW))
 async def process_review_comment(message: Message, state: FSMContext):
     """Обработка комментария к отзыву"""
@@ -120,7 +147,13 @@ async def process_review_comment(message: Message, state: FSMContext):
         order_id = data.get('review_order_id')
         product_id = data.get('review_product_id')
         rating = data.get('review_rating')
-        comment = message.text.strip()
+        
+        if not all([order_id, product_id, rating]):
+            await message.answer("❌ Ошибка данных отзыва")
+            await state.set_state(UserStates.MAIN_MENU)
+            return
+        
+        comment = message.text.strip() if message.text else ""
         
         # Добавляем отзыв
         await _db.add_review(message.from_user.id, product_id, order_id, rating, comment)
@@ -142,3 +175,4 @@ async def process_review_comment(message: Message, state: FSMContext):
     except Exception as e:
         logger.error(f"Ошибка в process_review_comment: {e}")
         await message.answer("❌ Ошибка сохранения отзыва")
+        await state.set_state(UserStates.MAIN_MENU)
