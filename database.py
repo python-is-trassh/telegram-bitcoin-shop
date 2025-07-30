@@ -184,64 +184,105 @@ class DatabaseManager:
             row = await conn.fetchrow("SELECT * FROM categories WHERE id = $1", category_id)
             return dict(row) if row else None
     
-async def get_products(self, category_id: int, active_only: bool = True) -> List[Dict]:
-    """Получение товаров категории с проверкой наличия ссылок"""
-    async with self.pool.acquire() as conn:
-        query = '''
-            SELECT p.*, 
-                   COALESCE(p.rating, 0) as rating,
-                   COALESCE(p.review_count, 0) as review_count,
-                   COALESCE(available_links.count, 0) as available_links_count
-            FROM products p
-            LEFT JOIN (
-                SELECT l.product_id, 
-                       SUM(GREATEST(array_length(l.content_links, 1) - COALESCE(used_count.count, 0), 0)) as count
-                FROM locations l
+# ИСПРАВЛЕННЫЕ МЕТОДЫ С ПРАВИЛЬНЫМИ ОТСТУПАМИ
+    
+    async def get_products(self, category_id: int, active_only: bool = True) -> List[Dict]:
+        """Получение товаров категории с проверкой наличия ссылок"""
+        async with self.pool.acquire() as conn:
+            query = '''
+                SELECT p.*, 
+                       COALESCE(p.rating, 0) as rating,
+                       COALESCE(p.review_count, 0) as review_count,
+                       COALESCE(available_links.count, 0) as available_links_count
+                FROM products p
                 LEFT JOIN (
-                    SELECT location_id, COUNT(*) as count
-                    FROM used_links
-                    GROUP BY location_id
-                ) used_count ON l.id = used_count.location_id
-                WHERE l.is_active = TRUE
-                GROUP BY l.product_id
-            ) available_links ON p.id = available_links.product_id
-            WHERE p.category_id = $1
-        '''
-        
-        if active_only:
-            query += " AND p.is_active = TRUE AND COALESCE(available_links.count, 0) > 0"
-        
-        query += " ORDER BY p.name"
-        
-        rows = await conn.fetch(query, category_id)
-        
-        # Преобразуем результат в словари с безопасными значениями
-        products = []
-        for row in rows:
+                    SELECT l.product_id, 
+                           SUM(GREATEST(array_length(l.content_links, 1) - COALESCE(used_count.count, 0), 0)) as count
+                    FROM locations l
+                    LEFT JOIN (
+                        SELECT location_id, COUNT(*) as count
+                        FROM used_links
+                        GROUP BY location_id
+                    ) used_count ON l.id = used_count.location_id
+                    WHERE l.is_active = TRUE
+                    GROUP BY l.product_id
+                ) available_links ON p.id = available_links.product_id
+                WHERE p.category_id = $1
+            '''
+            
+            if active_only:
+                query += " AND p.is_active = TRUE AND COALESCE(available_links.count, 0) > 0"
+            
+            query += " ORDER BY p.name"
+            
+            rows = await conn.fetch(query, category_id)
+            
+            # Преобразуем результат в словари с безопасными значениями
+            products = []
+            for row in rows:
+                product = dict(row)
+                # Убеждаемся, что числовые поля не равны None
+                product['rating'] = product.get('rating') or 0
+                product['review_count'] = product.get('review_count') or 0
+                product['available_links_count'] = product.get('available_links_count') or 0
+                products.append(product)
+            
+            return products
+
+    async def get_product(self, product_id: int) -> Optional[Dict]:
+        """Получение товара по ID"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT *, COALESCE(rating, 0) as rating, COALESCE(review_count, 0) as review_count FROM products WHERE id = $1", 
+                product_id
+            )
+            if not row:
+                return None
+            
             product = dict(row)
             # Убеждаемся, что числовые поля не равны None
             product['rating'] = product.get('rating') or 0
             product['review_count'] = product.get('review_count') or 0
-            product['available_links_count'] = product.get('available_links_count') or 0
-            products.append(product)
-        
-        return products
+            return product
 
-async def get_product(self, product_id: int) -> Optional[Dict]:
-    """Получение товара по ID"""
-    async with self.pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT *, COALESCE(rating, 0) as rating, COALESCE(review_count, 0) as review_count FROM products WHERE id = $1", 
-            product_id
-        )
-        if not row:
-            return None
-        
-        product = dict(row)
-        # Убеждаемся, что числовые поля не равны None
-        product['rating'] = product.get('rating') or 0
-        product['review_count'] = product.get('review_count') or 0
-        return product
+    async def get_stats(self) -> Dict:
+        """Получение статистики"""
+        async with self.pool.acquire() as conn:
+            stats = {}
+            
+            # Общая статистика с проверкой на None
+            total_orders = await conn.fetchval("SELECT COUNT(*) FROM orders")
+            stats['total_orders'] = total_orders if total_orders is not None else 0
+            
+            completed_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'completed'")
+            stats['completed_orders'] = completed_orders if completed_orders is not None else 0
+            
+            pending_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+            stats['pending_orders'] = pending_orders if pending_orders is not None else 0
+            
+            total_revenue = await conn.fetchval("SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE status = 'completed'")
+            stats['total_revenue'] = float(total_revenue) if total_revenue is not None else 0.0
+            
+            total_reviews = await conn.fetchval("SELECT COUNT(*) FROM reviews")
+            stats['total_reviews'] = total_reviews if total_reviews is not None else 0
+            
+            avg_rating = await conn.fetchval("SELECT AVG(rating) FROM reviews")
+            stats['avg_rating'] = float(avg_rating) if avg_rating is not None else 0.0
+            
+            # Статистика за сегодня
+            today = datetime.now().date()
+            today_orders = await conn.fetchval(
+                "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = $1", today
+            )
+            stats['today_orders'] = today_orders if today_orders is not None else 0
+            
+            today_revenue = await conn.fetchval(
+                "SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE DATE(created_at) = $1 AND status = 'completed'", 
+                today
+            )
+            stats['today_revenue'] = float(today_revenue) if today_revenue is not None else 0.0
+            
+            return stats    
     
     async def get_locations(self, product_id: int, active_only: bool = True) -> List[Dict]:
         """Получение локаций товара с проверкой наличия ссылок"""
@@ -727,47 +768,3 @@ async def get_product(self, product_id: int) -> Optional[Dict]:
                 ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = CURRENT_TIMESTAMP
             ''', key, value)
     
-    # Статистика
-# Заменить метод get_stats в database.py на этот исправленный вариант:
-
-async def get_stats(self) -> Dict:
-    """Получение статистики"""
-    async with self.pool.acquire() as conn:
-        stats = {}
-        
-        # Общая статистика с проверкой на None
-        total_orders = await conn.fetchval("SELECT COUNT(*) FROM orders")
-        stats['total_orders'] = total_orders if total_orders is not None else 0
-        
-        completed_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'completed'")
-        stats['completed_orders'] = completed_orders if completed_orders is not None else 0
-        
-        pending_orders = await conn.fetchval("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
-        stats['pending_orders'] = pending_orders if pending_orders is not None else 0
-        
-        total_revenue = await conn.fetchval("SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE status = 'completed'")
-        stats['total_revenue'] = float(total_revenue) if total_revenue is not None else 0.0
-        
-        total_reviews = await conn.fetchval("SELECT COUNT(*) FROM reviews")
-        stats['total_reviews'] = total_reviews if total_reviews is not None else 0
-        
-        avg_rating = await conn.fetchval("SELECT AVG(rating) FROM reviews")
-        stats['avg_rating'] = float(avg_rating) if avg_rating is not None else 0.0
-        
-        # Статистика за сегодня
-        today = datetime.now().date()
-        today_orders = await conn.fetchval(
-            "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = $1", today
-        )
-        stats['today_orders'] = today_orders if today_orders is not None else 0
-        
-        today_revenue = await conn.fetchval(
-            "SELECT COALESCE(SUM(price_rub - discount_amount), 0) FROM orders WHERE DATE(created_at) = $1 AND status = 'completed'", 
-            today
-        )
-        stats['today_revenue'] = float(today_revenue) if today_revenue is not None else 0.0
-        
-        return stats
-
-
-
