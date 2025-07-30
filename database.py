@@ -386,26 +386,87 @@ class DatabaseManager:
         # Скидка не может быть больше суммы заказа
         return min(discount, amount)
     
-    async def create_order(self, user_id: int, product_id: int, location_id: int, 
-                          price_rub: decimal.Decimal, price_btc: decimal.Decimal, 
-                          btc_rate: decimal.Decimal, payment_amount: decimal.Decimal,
-                          promo_code: str = None, discount_amount: decimal.Decimal = 0) -> int:
-        """Создание заказа"""
-        from config import BITCOIN_ADDRESS
+    async def get_order(self, order_id: int) -> Optional[Dict]:
+        """Получение заказа"""
         async with self.pool.acquire() as conn:
-            # Проверяем существование товара и локации
-            product_exists = await conn.fetchval(
-                "SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE", product_id
+            row = await conn.fetchrow("SELECT * FROM orders WHERE id = $1", order_id)
+            return dict(row) if row else None
+    
+    # ИСПРАВЛЕНИЯ для database.py - ключевые методы с улучшенной валидацией
+
+# Добавить эти исправленные методы в database.py:
+
+    async def create_order(self, user_id: int, product_id: int, location_id: int, 
+                      price_rub: decimal.Decimal, price_btc: decimal.Decimal, 
+                      btc_rate: decimal.Decimal, payment_amount: decimal.Decimal,
+                      promo_code: str = None, discount_amount: decimal.Decimal = 0) -> int:
+    """Создание заказа с улучшенной валидацией"""
+        from config import BITCOIN_ADDRESS
+    
+    # ИСПРАВЛЕНИЕ: Валидация входных данных
+        if user_id <= 0:
+            raise ValueError("Некорректный ID пользователя")
+        if price_rub <= 0 or price_btc <= 0 or payment_amount <= 0:
+            raise ValueError("Все суммы должны быть положительными")
+        if btc_rate <= 0:
+            raise ValueError("Курс Bitcoin должен быть положительным")
+        if discount_amount < 0:
+            raise ValueError("Скидка не может быть отрицательной")
+        if discount_amount > price_rub:
+            raise ValueError("Скидка не может превышать стоимость товара")
+    
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+            # ИСПРАВЛЕНИЕ: Проверяем существование и активность товара
+            product = await conn.fetchrow(
+                "SELECT id, is_active, price_rub FROM products WHERE id = $1", 
+                product_id
             )
-            if not product_exists:
-                raise ValueError("Товар не найден или неактивен")
+                if not product:
+                    raise ValueError("Товар не найден")
+                if not product['is_active']:
+                    raise ValueError("Товар неактивен")
             
-            location_exists = await conn.fetchval(
-                "SELECT 1 FROM locations WHERE id = $1 AND is_active = TRUE", location_id
+            # ИСПРАВЛЕНИЕ: Проверяем, что цена не изменилась
+                 if abs(product['price_rub'] - price_rub) > decimal.Decimal('0.01'):
+                    raise ValueError("Цена товара изменилась, обновите страницу")
+            
+            # ИСПРАВЛЕНИЕ: Проверяем существование и активность локации
+            location = await conn.fetchrow(
+                "SELECT id, product_id, is_active FROM locations WHERE id = $1", 
+                location_id
             )
-            if not location_exists:
-                raise ValueError("Локация не найдена или неактивна")
+                if not location:
+                    raise ValueError("Локация не найдена")
+                if not location['is_active']:
+                    raise ValueError("Локация неактивна")
+                if location['product_id'] != product_id:
+                    raise ValueError("Локация не принадлежит данному товару")
             
+            # ИСПРАВЛЕНИЕ: Проверяем наличие доступных ссылок
+            available_links = await conn.fetchval('''
+                SELECT GREATEST(array_length(l.content_links, 1) - COALESCE(used_count.count, 0), 0)
+                FROM locations l
+                LEFT JOIN (
+                    SELECT location_id, COUNT(*) as count
+                    FROM used_links
+                    GROUP BY location_id
+                ) used_count ON l.id = used_count.location_id
+                WHERE l.id = $1
+            ''', location_id)
+            
+                if not available_links or available_links <= 0:
+                    raise ValueError("В выбранной локации нет доступных товаров")
+            
+            # ИСПРАВЛЕНИЕ: Проверяем лимит заказов пользователя (не более 5 одновременных)
+            pending_orders = await conn.fetchval(
+                "SELECT COUNT(*) FROM orders WHERE user_id = $1 AND status = 'pending'",
+                user_id
+            )
+                if pending_orders >= 5:
+                    raise ValueError("Слишком много одновременных заказов. Завершите существующие.")
+            
+            # Создаем заказ
             order_id = await conn.fetchval('''
                 INSERT INTO orders (user_id, product_id, location_id, price_rub, 
                                   price_btc, btc_rate, bitcoin_address, payment_amount,
@@ -414,68 +475,184 @@ class DatabaseManager:
                 RETURNING id
             ''', user_id, product_id, location_id, price_rub, price_btc, 
                 btc_rate, BITCOIN_ADDRESS, payment_amount, promo_code, discount_amount)
+            
+            logger.info(f"Создан заказ #{order_id} для пользователя {user_id}")
             return order_id
-    
-    async def get_order(self, order_id: int) -> Optional[Dict]:
-        """Получение заказа"""
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM orders WHERE id = $1", order_id)
-            return dict(row) if row else None
-    
-    async def complete_order(self, order_id: int, content_link: str, transaction_hash: str = None):
-        """Завершение заказа"""
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                UPDATE orders SET status = 'completed', content_link = $2, 
-                       transaction_hash = $3, completed_at = CURRENT_TIMESTAMP
-                WHERE id = $1 AND status = 'pending'
-            ''', order_id, content_link, transaction_hash)
-    
+
     async def get_available_link(self, location_id: int) -> Optional[str]:
-        """Получение доступной ссылки из локации"""
+    """Получение доступной ссылки из локации с улучшенной логикой"""
         async with self.pool.acquire() as conn:
             async with conn.transaction():
-                # Получаем все ссылки локации
-                location = await conn.fetchrow(
-                    "SELECT content_links FROM locations WHERE id = $1 AND is_active = TRUE", location_id
-                )
-                if not location or not location['content_links']:
-                    return None
-                
-                # Получаем использованные ссылки
-                used_links = await conn.fetch(
-                    "SELECT link FROM used_links WHERE location_id = $1", location_id
-                )
-                used_set = {row['link'] for row in used_links}
-                
-                # Находим первую неиспользованную ссылку
-                for link in location['content_links']:
-                    if link not in used_set:
-                        # Помечаем как использованную
-                        await conn.execute(
-                            "INSERT INTO used_links (location_id, link) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                            location_id, link
-                        )
-                        return link
-                
-                return None
-    
-    async def is_transaction_used(self, tx_hash: str) -> bool:
-        """Проверка, использовалась ли уже транзакция"""
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchval(
-                "SELECT 1 FROM used_transactions WHERE transaction_hash = $1", tx_hash
+            # ИСПРАВЛЕНИЕ: Проверяем существование и активность локации
+            location = await conn.fetchrow(
+                "SELECT content_links, is_active FROM locations WHERE id = $1", 
+                location_id
             )
-            return result is not None
+                if not location:
+                logger.error(f"Локация {location_id} не найдена")
+                   return None
+                if not location['is_active']:
+                logger.error(f"Локация {location_id} неактивна")
+                   return None
+                if not location['content_links']:
+                logger.error(f"В локации {location_id} нет ссылок")
+                   return None
+            
+            # Получаем использованные ссылки
+            used_links = await conn.fetch(
+                "SELECT link FROM used_links WHERE location_id = $1", location_id
+            )
+            used_set = {row['link'] for row in used_links}
+            
+            # ИСПРАВЛЕНИЕ: Более надежный поиск доступной ссылки
+            available_links = []
+                for link in location['content_links']:
+                    if link and link.strip() and link not in used_set:
+                    available_links.append(link.strip())
+            
+                if not available_links:
+                logger.warning(f"В локации {location_id} нет доступных ссылок")
+                    return None
+            
+            # ИСПРАВЛЕНИЕ: Выбираем первую доступную ссылку и сразу помечаем как использованную
+            selected_link = available_links[0]
+            
+                try:
+                    await conn.execute(
+                    "INSERT INTO used_links (location_id, link) VALUES ($1, $2)",
+                    location_id, selected_link
+                )
+                logger.info(f"Выдана ссылка из локации {location_id}")
+                    return selected_link
+                except Exception as e:
+                logger.error(f"Ошибка при пометке ссылки как использованной: {e}")
+                    return None
+
+    async def validate_promo_code(self, code: str, order_amount: decimal.Decimal, user_id: int) -> Optional[Dict]:
+    """Проверка промокода с улучшенной валидацией"""
+    # ИСПРАВЛЕНИЕ: Валидация входных данных
+        if not code or not code.strip():
+            return None
+        if order_amount <= 0:
+            return None
+        if user_id <= 0:
+            return None
     
-    async def mark_transaction_used(self, tx_hash: str, order_id: int, amount: decimal.Decimal):
-        """Отметить транзакцию как использованную"""
+    code = code.strip().upper()
+    
         async with self.pool.acquire() as conn:
-            await conn.execute('''
+        # Получаем информацию о промокоде
+        promo = await conn.fetchrow('''
+            SELECT * FROM promo_codes 
+            WHERE code = $1 AND is_active = TRUE
+            AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+            AND min_order_amount <= $2
+        ''', code, order_amount)
+        
+            if not promo:
+            logger.info(f"Промокод '{code}' не найден или неактивен")
+                return None
+        
+        # ИСПРАВЛЕНИЕ: Проверяем лимит использований
+            if promo['max_uses'] > 0 and promo['current_uses'] >= promo['max_uses']:
+            logger.info(f"Промокод '{code}' исчерпан ({promo['current_uses']}/{promo['max_uses']})")
+                return None
+        
+        # Проверяем, использовал ли пользователь уже этот промокод
+        usage = await conn.fetchrow('''
+            SELECT 1 FROM promo_usage 
+            WHERE user_id = $1 AND promo_code_id = $2
+        ''', user_id, promo['id'])
+        
+            if usage:
+            logger.info(f"Пользователь {user_id} уже использовал промокод '{code}'")
+                return None
+        
+        logger.info(f"Промокод '{code}' валидирован для пользователя {user_id}")
+            return dict(promo)
+
+    async def is_transaction_used(self, tx_hash: str) -> bool:
+    """Проверка, использовалась ли уже транзакция с валидацией"""
+    # ИСПРАВЛЕНИЕ: Валидация хеша транзакции
+        if not tx_hash or not isinstance(tx_hash, str) or len(tx_hash) != 64:
+        logger.warning(f"Некорректный хеш транзакции: {tx_hash}")
+            return True  # Считаем использованной для безопасности
+    
+        async with self.pool.acquire() as conn:
+        result = await conn.fetchval(
+            "SELECT 1 FROM used_transactions WHERE transaction_hash = $1", tx_hash
+        )
+             return result is not None
+
+    async def mark_transaction_used(self, tx_hash: str, order_id: int, amount: decimal.Decimal):
+    """Отметить транзакцию как использованную с валидацией"""
+    # ИСПРАВЛЕНИЕ: Валидация входных данных
+        if not tx_hash or not isinstance(tx_hash, str) or len(tx_hash) != 64:
+            raise ValueError("Некорректный хеш транзакции")
+        if order_id <= 0:
+            raise ValueError("Некорректный ID заказа")
+        if amount <= 0:
+            raise ValueError("Сумма должна быть положительной")
+    
+        async with self.pool.acquire() as conn:
+            try:
+                await conn.execute('''
                 INSERT INTO used_transactions (transaction_hash, order_id, amount)
                 VALUES ($1, $2, $3)
                 ON CONFLICT (transaction_hash) DO NOTHING
             ''', tx_hash, order_id, amount)
+            logger.info(f"Транзакция {tx_hash[:16]}... помечена как использованная")
+            except Exception as e:
+            logger.error(f"Ошибка при пометке транзакции: {e}")
+                raise
+
+    async def complete_order(self, order_id: int, content_link: str, transaction_hash: str = None):
+    """Завершение заказа с валидацией"""
+    # ИСПРАВЛЕНИЕ: Валидация входных данных
+        if order_id <= 0:
+            raise ValueError("Некорректный ID заказа")
+        if not content_link or not content_link.strip():
+            raise ValueError("Ссылка на контент не может быть пустой")
+    
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+            # ИСПРАВЛЕНИЕ: Проверяем существование и статус заказа
+            order = await conn.fetchrow(
+                "SELECT id, status, user_id FROM orders WHERE id = $1", 
+                order_id
+            )
+                if not order:
+                    raise ValueError("Заказ не найден")
+                if order['status'] != 'pending':
+                    raise ValueError(f"Заказ уже имеет статус '{order['status']}'")
+            
+            # Завершаем заказ
+            result = await conn.execute('''
+                UPDATE orders SET status = 'completed', content_link = $2, 
+                       transaction_hash = $3, completed_at = CURRENT_TIMESTAMP
+                WHERE id = $1 AND status = 'pending'
+            ''', order_id, content_link.strip(), transaction_hash)
+            
+                if result == "UPDATE 0":
+                    raise ValueError("Не удалось завершить заказ (возможно, статус изменился)")
+            
+            logger.info(f"Заказ #{order_id} завершен для пользователя {order['user_id']}")
+
+# ИСПРАВЛЕНИЕ: Добавить индексы для производительности (выполнить при обновлении)
+    async def add_missing_indexes(self):
+    """Добавление недостающих индексов для производительности"""
+        async with self.pool.acquire() as conn:
+            try:
+            # Индексы для частых запросов
+                await conn.execute('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_user_status ON orders(user_id, status)')
+                await conn.execute('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_expires_at ON orders(expires_at) WHERE status = \'pending\'')
+                await conn.execute('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_promo_codes_code_active ON promo_codes(code) WHERE is_active = TRUE')
+                await conn.execute('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_locations_product_active ON locations(product_id) WHERE is_active = TRUE')
+                await conn.execute('CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_products_category_active ON products(category_id) WHERE is_active = TRUE')
+            logger.info("Добавлены индексы для производительности")
+            except Exception as e:
+            logger.warning(f"Не удалось добавить некоторые индексы: {e}")
+    
     
     async def get_user_history(self, user_id: int) -> List[Dict]:
         """Получение истории покупок пользователя"""
