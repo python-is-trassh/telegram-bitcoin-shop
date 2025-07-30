@@ -22,7 +22,7 @@ def setup_admin_handlers(db, bot):
     _db = db
     _bot = bot
 
-# Функции клавиатуры (перенесены сюда чтобы избежать циклических импортов)
+# ИСПРАВЛЕНИЕ: Функции клавиатуры вынесены в отдельный блок для переиспользования
 def create_admin_menu():
     """Создание админ меню"""
     builder = InlineKeyboardBuilder()
@@ -134,7 +134,7 @@ async def admin_menu_handler(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Ошибка в admin_menu_handler: {e}")
         await callback.answer("❌ Ошибка открытия админ панели")
 
-# Промокоды - добавление
+# ДОБАВЛЕНИЕ ПРОМОКОДОВ
 @router.callback_query(F.data == "admin_add_promo")
 async def admin_add_promo_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик добавления промокода"""
@@ -208,7 +208,7 @@ async def process_add_promo(message: Message, state: FSMContext):
         logger.error(f"Ошибка добавления промокода: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# Промокоды - управление
+# УПРАВЛЕНИЕ ПРОМОКОДАМИ
 @router.callback_query(F.data == "admin_manage_promos")
 async def admin_manage_promos_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик управления промокодами"""
@@ -266,7 +266,7 @@ async def admin_delete_promo_handler(callback: CallbackQuery, state: FSMContext)
         logger.error(f"Ошибка удаления промокода: {e}")
         await callback.answer("❌ Ошибка удаления промокода")
 
-# Редактирование промокодов
+# РЕДАКТИРОВАНИЕ ПРОМОКОДОВ
 @router.callback_query(F.data.startswith("admin_edit_promo_"))
 async def admin_edit_promo_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик редактирования промокода"""
@@ -366,7 +366,7 @@ async def process_edit_promo(message: Message, state: FSMContext):
         logger.error(f"Ошибка обновления промокода: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# НЕДОСТАЮЩИЕ ОБРАБОТЧИКИ для управления товарами
+# УПРАВЛЕНИЕ ТОВАРАМИ
 @router.callback_query(F.data == "admin_manage_products")
 async def admin_manage_products_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик управления товарами"""
@@ -401,7 +401,7 @@ async def admin_manage_products_handler(callback: CallbackQuery, state: FSMConte
         logger.error(f"Ошибка в admin_manage_products_handler: {e}")
         await callback.answer("❌ Ошибка загрузки товаров")
 
-# НЕДОСТАЮЩИЕ ОБРАБОТЧИКИ для управления локациями
+# УПРАВЛЕНИЕ ЛОКАЦИЯМИ
 @router.callback_query(F.data == "admin_manage_locations")
 async def admin_manage_locations_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик управления локациями"""
@@ -439,7 +439,7 @@ async def admin_manage_locations_handler(callback: CallbackQuery, state: FSMCont
         logger.error(f"Ошибка в admin_manage_locations_handler: {e}")
         await callback.answer("❌ Ошибка загрузки локаций")
 
-# Статистика для админов
+# СТАТИСТИКА
 @router.callback_query(F.data == "admin_stats")
 async def admin_stats_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик админской статистики"""
@@ -471,7 +471,7 @@ async def admin_stats_handler(callback: CallbackQuery, state: FSMContext):
         logger.error(f"Ошибка в admin_stats_handler: {e}")
         await callback.answer("❌ Ошибка загрузки статистики")
 
-# Просмотр отзывов
+# ПРОСМОТР ОТЗЫВОВ
 @router.callback_query(F.data == "admin_view_reviews")
 async def admin_view_reviews_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик просмотра отзывов для админа"""
@@ -513,7 +513,7 @@ async def admin_view_reviews_handler(callback: CallbackQuery, state: FSMContext)
         logger.error(f"Ошибка в admin_view_reviews_handler: {e}")
         await callback.answer("❌ Ошибка загрузки отзывов")
 
-# Редактирование "О магазине"
+# РЕДАКТИРОВАНИЕ "О МАГАЗИНЕ"
 @router.callback_query(F.data == "admin_edit_about")
 async def admin_edit_about_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик редактирования информации о магазине"""
@@ -553,7 +553,7 @@ async def process_edit_about(message: Message, state: FSMContext):
         logger.error(f"Ошибка обновления информации о магазине: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# Добавление категории
+# ДОБАВЛЕНИЕ КАТЕГОРИИ
 @router.callback_query(F.data == "admin_add_category")
 async def admin_add_category_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик добавления категории"""
@@ -584,7 +584,7 @@ async def process_add_category(message: Message, state: FSMContext):
         logger.error(f"Ошибка добавления категории: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# Добавление товара
+# ДОБАВЛЕНИЕ ТОВАРА
 @router.callback_query(F.data == "admin_add_product")
 async def admin_add_product_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик добавления товара"""
@@ -662,7 +662,7 @@ async def process_add_product(message: Message, state: FSMContext):
         logger.error(f"Ошибка добавления товара: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# Добавление локации
+# ДОБАВЛЕНИЕ ЛОКАЦИИ
 @router.callback_query(F.data == "admin_add_location")
 async def admin_add_location_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик добавления локации"""
@@ -753,7 +753,7 @@ async def process_add_location(message: Message, state: FSMContext):
         logger.error(f"Ошибка добавления локации: {e}")
         await message.answer(f"❌ Ошибка: {e}")
 
-# Управление категориями
+# УПРАВЛЕНИЕ КАТЕГОРИЯМИ
 @router.callback_query(F.data == "admin_manage_categories")
 async def admin_manage_categories_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик управления категориями"""
