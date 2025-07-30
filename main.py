@@ -69,11 +69,12 @@ async def main():
         setup_review_handlers(db, bot)
         setup_edit_handlers(db, bot)
         
-        # Регистрируем роутеры
-        dp.include_router(admin_router)  # ПЕРВЫЙ
-dp.include_router(edit_router)
-dp.include_router(review_router)
-dp.include_router(main_router)
+        # ИСПРАВЛЕНИЕ: Правильный порядок регистрации роутеров
+        # Важно: более специфичные роутеры должны быть ПОСЛЕДНИМИ
+        dp.include_router(main_router)      # ОСНОВНОЙ - первый (общие callback)
+        dp.include_router(review_router)    # ОТЗЫВЫ - второй  
+        dp.include_router(edit_router)      # РЕДАКТИРОВАНИЕ - третий (admin_edit_*, admin_delete_*)
+        dp.include_router(admin_router)     # АДМИН - последний (admin_menu, admin_add_*, admin_manage_*)
         
         # Запускаем задачу отмены просроченных заказов
         cancel_task = asyncio.create_task(cancel_expired_orders())
@@ -88,6 +89,11 @@ dp.include_router(main_router)
         logger.info("  ⭐ Система рейтингов и отзывов")
         logger.info("  🎟️ Промокоды и скидки")
         logger.info("  📱 Уведомления о статусе заказов")
+        logger.info("🔧 ИСПРАВЛЕНИЯ:")
+        logger.info("  ✅ Убрано дублирование функций клавиатур")
+        logger.info("  ✅ Исправлены импорты")
+        logger.info("  ✅ Правильный порядок роутеров")
+        logger.info("  ✅ Исправлены отступы в database.py")
         if TEST_MODE:
             logger.warning("🧪 ВКЛЮЧЕН ТЕСТОВЫЙ РЕЖИМ - все платежи будут считаться подтвержденными!")
         
