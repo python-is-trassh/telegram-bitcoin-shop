@@ -15,13 +15,12 @@ from keyboards import (
     create_main_menu, create_categories_menu, create_products_menu,
     create_product_detail_menu, create_locations_menu, 
     create_back_to_main_menu
-)
-from bitcoin_utils import get_btc_rate, check_bitcoin_payment
-from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
+    )
 
 from admin_handlers import create_admin_menu
 from bitcoin_utils import get_btc_rate, check_bitcoin_payment
 from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
+
 
 router = Router()
 
