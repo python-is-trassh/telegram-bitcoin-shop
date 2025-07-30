@@ -8,7 +8,7 @@ from aiogram.types import InlineKeyboardButton
 
 from states import AdminStates
 from config import ADMIN_IDS, logger
-# ИМПОРТИРУЕМ ФУНКЦИИ КЛАВИАТУР ИЗ ADMIN_HANDLERS (убираем дублирование)
+# ИСПРАВЛЕНИЕ: Импортируем только необходимые функции клавиатур из admin_handlers
 from admin_handlers import (
     create_admin_menu, create_manage_categories_menu, 
     create_manage_products_menu, create_manage_locations_menu
@@ -26,9 +26,9 @@ def setup_edit_handlers(db, bot):
     _db = db
     _bot = bot
 
-# УДАЛЕНЫ ДУБЛИРУЮЩИЕСЯ ФУНКЦИИ КЛАВИАТУР (они теперь импортированы из admin_handlers)
+# ИСПРАВЛЕНИЕ: Убраны дублирующиеся функции клавиатур (они импортируются из admin_handlers)
 
-# Редактирование категорий
+# РЕДАКТИРОВАНИЕ КАТЕГОРИЙ
 @router.callback_query(F.data.startswith("admin_edit_category_"))
 async def admin_edit_category_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик редактирования категории"""
@@ -129,7 +129,7 @@ async def admin_delete_category_handler(callback: CallbackQuery, state: FSMConte
         logger.error(f"Ошибка удаления категории: {e}")
         await callback.answer("❌ Ошибка удаления категории")
 
-# Редактирование товаров
+# РЕДАКТИРОВАНИЕ ТОВАРОВ
 @router.callback_query(F.data.startswith("admin_edit_product_"))
 async def admin_edit_product_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик редактирования товара"""
@@ -247,7 +247,7 @@ async def admin_delete_product_handler(callback: CallbackQuery, state: FSMContex
         logger.error(f"Ошибка удаления товара: {e}")
         await callback.answer("❌ Ошибка удаления товара")
 
-# Редактирование локаций
+# РЕДАКТИРОВАНИЕ ЛОКАЦИЙ
 @router.callback_query(F.data.startswith("admin_edit_location_"))
 async def admin_edit_location_handler(callback: CallbackQuery, state: FSMContext):
     """Обработчик редактирования локации"""
