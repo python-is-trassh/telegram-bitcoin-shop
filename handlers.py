@@ -16,8 +16,6 @@ from keyboards import (
     create_product_detail_menu, create_locations_menu, 
     create_back_to_main_menu
 )
-# ИСПРАВЛЕНИЕ: Добавляем недостающий импорт функции админ меню
-from admin_handlers import create_admin_menu
 from bitcoin_utils import get_btc_rate, check_bitcoin_payment
 from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
 
@@ -32,6 +30,26 @@ def setup_handlers(db, bot: Bot):
     global _db, _bot
     _db = db
     _bot = bot
+
+# ИСПРАВЛЕНИЕ: Убираем циклический импорт create_admin_menu
+# Создаем функцию локально, чтобы избежать импорта из admin_handlers
+def create_admin_menu_local():
+    """Создание админ меню (локальная копия для избежания циклических импортов)"""
+    builder = InlineKeyboardBuilder()
+    builder.add(InlineKeyboardButton(text="➕ Добавить категорию", callback_data="admin_add_category"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить товар", callback_data="admin_add_product"))
+    builder.add(InlineKeyboardButton(text="➕ Добавить локацию", callback_data="admin_add_location"))
+    builder.add(InlineKeyboardButton(text="🎟️ Добавить промокод", callback_data="admin_add_promo"))
+    builder.add(InlineKeyboardButton(text="📝 Управление категориями", callback_data="admin_manage_categories"))
+    builder.add(InlineKeyboardButton(text="📦 Управление товарами", callback_data="admin_manage_products"))
+    builder.add(InlineKeyboardButton(text="📍 Управление локациями", callback_data="admin_manage_locations"))
+    builder.add(InlineKeyboardButton(text="🎟️ Управление промокодами", callback_data="admin_manage_promos"))
+    builder.add(InlineKeyboardButton(text="⭐ Просмотр отзывов", callback_data="admin_view_reviews"))
+    builder.add(InlineKeyboardButton(text="✏️ Редактировать «О магазине»", callback_data="admin_edit_about"))
+    builder.add(InlineKeyboardButton(text="📊 Статистика", callback_data="admin_stats"))
+    builder.add(InlineKeyboardButton(text="🔙 В главное меню", callback_data="main_menu"))
+    builder.adjust(2, 2, 2, 2, 2, 1, 1, 1)
+    return builder.as_markup()
 
 # Основные команды
 @router.message(Command("start"))
@@ -56,8 +74,7 @@ async def admin_handler(message: Message, state: FSMContext):
         return
     
     await state.set_state(AdminStates.ADMIN_MENU)
-    # ТЕПЕРЬ ФУНКЦИЯ create_admin_menu КОРРЕКТНО ИМПОРТИРОВАНА
-    await message.answer("🔧 Панель администратора", reply_markup=create_admin_menu())
+    await message.answer("🔧 Панель администратора", reply_markup=create_admin_menu_local())
     logger.info(f"Админ {message.from_user.id} вошел в панель управления")
 
 # Основные обработчики callback'ов
