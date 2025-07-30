@@ -15,12 +15,11 @@ from keyboards import (
     create_main_menu, create_categories_menu, create_products_menu,
     create_product_detail_menu, create_locations_menu, 
     create_back_to_main_menu
-    )
-
+)
+# ИСПРАВЛЕНИЕ: Добавляем недостающий импорт функции админ меню
 from admin_handlers import create_admin_menu
 from bitcoin_utils import get_btc_rate, check_bitcoin_payment
 from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
-
 
 router = Router()
 
@@ -33,9 +32,6 @@ def setup_handlers(db, bot: Bot):
     global _db, _bot
     _db = db
     _bot = bot
-
-# Функции клавиатуры для админ панели (локальные)
-
 
 # Основные команды
 @router.message(Command("start"))
@@ -60,6 +56,7 @@ async def admin_handler(message: Message, state: FSMContext):
         return
     
     await state.set_state(AdminStates.ADMIN_MENU)
+    # ТЕПЕРЬ ФУНКЦИЯ create_admin_menu КОРРЕКТНО ИМПОРТИРОВАНА
     await message.answer("🔧 Панель администратора", reply_markup=create_admin_menu())
     logger.info(f"Админ {message.from_user.id} вошел в панель управления")
 
@@ -73,15 +70,6 @@ async def main_menu_handler(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
     except TelegramBadRequest:
         await callback.message.answer("🏠 Главное меню", reply_markup=create_main_menu())
-
-
-    
-    await state.set_state(AdminStates.ADMIN_MENU)
-    try:
-        await callback.message.edit_text("🔧 Панель администратора", reply_markup=create_admin_menu())
-        await callback.answer()
-    except TelegramBadRequest:
-        await callback.message.answer("🔧 Панель администратора", reply_markup=create_admin_menu())
 
 @router.callback_query(F.data == "categories")
 async def categories_handler(callback: CallbackQuery, state: FSMContext):
@@ -644,4 +632,3 @@ async def cancel_order_handler(callback: CallbackQuery, state: FSMContext):
 async def unknown_message_handler(message: Message):
     """Обработчик неизвестных сообщений"""
     await message.answer("❓ Неизвестная команда. Используйте /start для начала работы")
-
