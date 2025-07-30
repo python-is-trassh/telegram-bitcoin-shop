@@ -642,8 +642,3 @@ async def unknown_message_handler(message: Message):
     """Обработчик неизвестных сообщений"""
     await message.answer("❓ Неизвестная команда. Используйте /start для начала работы")
 
-# Обработчик ошибок callback'ов
-@router.callback_query()
-async def unknown_callback_handler(callback: CallbackQuery):
-    """Обработчик неизвестных callback'ов"""
-    await callback.answer("❓ Неизвестная команда")
