@@ -11,11 +11,11 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 db = DatabaseManager(DB_URL)
 
-# Импортируем роутеры и setup функции
-from handlers import router as main_router, setup_handlers
-from admin_handlers import router as admin_router, setup_admin_handlers
+# ИСПРАВЛЕНИЕ: Импортируем роутеры в правильном порядке
 from review_handlers import router as review_router, setup_review_handlers
-from edit_handlers import router as edit_router, setup_edit_handlers
+from edit_handlers import router as edit_router, setup_edit_handlers  
+from admin_handlers import router as admin_router, setup_admin_handlers
+from handlers import router as main_router, setup_handlers  # ГЛАВНЫЙ РОУТЕР - ПОСЛЕДНИЙ!
 
 # Автоматическая отмена просроченных заказов
 async def cancel_expired_orders():
@@ -64,17 +64,17 @@ async def main():
         await db.init_pool()
         
         # Инициализируем обработчики с доступом к db и bot
-        setup_handlers(db, bot)
-        setup_admin_handlers(db, bot)
         setup_review_handlers(db, bot)
         setup_edit_handlers(db, bot)
+        setup_admin_handlers(db, bot)
+        setup_handlers(db, bot)  # ПОСЛЕДНИЙ!
         
-        # ИСПРАВЛЕНИЕ: Правильный порядок регистрации роутеров
-        # Важно: более специфичные роутеры должны быть ПОСЛЕДНИМИ
-        dp.include_router(main_router)      # ОСНОВНОЙ - первый (общие callback)
-        dp.include_router(review_router)    # ОТЗЫВЫ - второй  
-        dp.include_router(edit_router)      # РЕДАКТИРОВАНИЕ - третий (admin_edit_*, admin_delete_*)
-        dp.include_router(admin_router)     # АДМИН - последний (admin_menu, admin_add_*, admin_manage_*)
+        # ИСПРАВЛЕНИЕ: Правильный порядок роутеров
+        # Более специфичные роутеры регистрируем ПЕРВЫМИ!
+        dp.include_router(review_router)    # Самые специфичные (product_reviews_, review_order_, rate_)
+        dp.include_router(edit_router)      # Специфичные админские (admin_edit_*, admin_delete_*)
+        dp.include_router(admin_router)     # Админские (admin_menu, admin_add_*, admin_manage_*)
+        dp.include_router(main_router)      # ОБЩИЕ - ПОСЛЕДНИМИ! (start, categories, main_menu и т.д.)
         
         # Запускаем задачу отмены просроченных заказов
         cancel_task = asyncio.create_task(cancel_expired_orders())
@@ -89,11 +89,10 @@ async def main():
         logger.info("  ⭐ Система рейтингов и отзывов")
         logger.info("  🎟️ Промокоды и скидки")
         logger.info("  📱 Уведомления о статусе заказов")
-        logger.info("🔧 ИСПРАВЛЕНИЯ:")
-        logger.info("  ✅ Убрано дублирование функций клавиатур")
-        logger.info("  ✅ Исправлены импорты")
-        logger.info("  ✅ Правильный порядок роутеров")
-        logger.info("  ✅ Исправлены отступы в database.py")
+        logger.info("🔧 КРИТИЧЕСКИЕ ИСПРАВЛЕНИЯ:")
+        logger.info("  ✅ ИСПРАВЛЕН порядок роутеров (специфичные первыми)")
+        logger.info("  ✅ Устранены конфликты callback'ов")
+        logger.info("  ✅ Исправлены циклические импорты")
         if TEST_MODE:
             logger.warning("🧪 ВКЛЮЧЕН ТЕСТОВЫЙ РЕЖИМ - все платежи будут считаться подтвержденными!")
         
