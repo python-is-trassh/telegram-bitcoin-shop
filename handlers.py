@@ -19,6 +19,10 @@ from keyboards import (
 from bitcoin_utils import get_btc_rate, check_bitcoin_payment
 from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
 
+from admin_handlers import create_admin_menu
+from bitcoin_utils import get_btc_rate, check_bitcoin_payment
+from config import ADMIN_IDS, BITCOIN_ADDRESS, logger
+
 router = Router()
 
 # Глобальные переменные для доступа к db и bot
